@@ -9,7 +9,6 @@ namespace BLM0230_Proje_YusufCil
 {
     public partial class Form1 : Form
     {
-        // Tasarımcı hatasını bypass etmek için nesneleri doğrudan kod tarafında tanımlıyoruz
         private TextBox inputField;
         private TextBox errorBitField;
         private Button calculateButton;
@@ -23,20 +22,21 @@ namespace BLM0230_Proje_YusufCil
         private List<string> encodedMemory = new List<string>();
         private int selectedIndex = -1;
 
+        // Çoklu hata pozisyonlarını görsel şeritte kırmızı boyamak için listede tutuyoruz
+        private List<int> currentErrorPositions = new List<int>();
+
         public Form1()
         {
             InitializeComponent();
             SetupDynamicInterface();
         }
 
-        // Arayüz bileşenlerini dinamik olarak formun üzerine yerleştiren metot
         private void SetupDynamicInterface()
         {
             this.Size = new Size(720, 580);
             this.Text = "Hamming SEC-DED Simulatoru";
             this.StartPosition = FormStartPosition.CenterScreen;
 
-            // Sol Panel (Girişler ve Butonlar için)
             Panel leftPanel = new Panel { Size = new Size(420, 320), Location = new Point(10, 10) };
 
             Label lbl1 = new Label { Text = "Veri (8/16/32 bit):", Location = new Point(10, 15), AutoSize = true };
@@ -53,30 +53,24 @@ namespace BLM0230_Proje_YusufCil
 
             leftPanel.Controls.AddRange(new Control[] { lbl1, inputField, calculateButton, lbl2, errorBitField, injectErrorButton, correctErrorButton, outputArea });
 
-            // Sağ Liste (Bellek Kayıtları için)
             Label lbl3 = new Label { Text = "Bellek Listesi:", Location = new Point(445, 15), AutoSize = true };
             memoryList = new ListBox { Location = new Point(445, 40), Width = 245, Height = 290 };
 
-            // Alt Panel (Renkli Bit Kutuları için)
             bitPanel = new FlowLayoutPanel { Location = new Point(10, 340), Width = 680, Height = 180, AutoScroll = true, BorderStyle = BorderStyle.FixedSingle };
 
-            // Hepsini Forma Ekleme
             this.Controls.AddRange(new Control[] { leftPanel, lbl3, memoryList, bitPanel });
 
-            // Olayları (Eventleri) Bağlama
             calculateButton.Click += calculateButton_Click;
             injectErrorButton.Click += injectErrorButton_Click;
             correctErrorButton.Click += correctErrorButton_Click;
             memoryList.SelectedIndexChanged += MemoryList_SelectedIndexChanged;
 
-            // inputField için maksimum karakter sınırını 32 yapıyoruz
             inputField.MaxLength = 32;
-
-            // Kullanıcının sadece 0, 1 ve Backspace (silme) tuşuna basmasına izin veriyoruz
             inputField.KeyPress += InputField_KeyPress;
         }
 
-        private void ShowBits(string bits, int errorPos, int correctedPos)
+        // List parametresi ekleyerek birden çok kırmızı kutuyu boyayabilmesini sağladık
+        private void ShowBits(string bits, List<int> errorPositions, int correctedPos)
         {
             bitPanel.Controls.Clear();
 
@@ -92,12 +86,14 @@ namespace BLM0230_Proje_YusufCil
                     Margin = new Padding(3)
                 };
 
-                if (i + 1 == errorPos)
+                int currentBitPos = i + 1; // 1 tabanlı insan indeksi
+
+                if (errorPositions != null && errorPositions.Contains(currentBitPos))
                 {
                     lbl.BackColor = Color.Red;
                     lbl.ForeColor = Color.White;
                 }
-                else if (i + 1 == correctedPos)
+                else if (currentBitPos == correctedPos)
                 {
                     lbl.BackColor = Color.Green;
                     lbl.ForeColor = Color.White;
@@ -132,7 +128,9 @@ namespace BLM0230_Proje_YusufCil
             int lastIndex = encodedMemory.Count - 1;
             memoryList.SelectedIndex = lastIndex;
             encodedData = encodedMemory[lastIndex];
-            ShowBits(encodedData, 0, 0);
+
+            currentErrorPositions.Clear(); // Hataları sıfırla
+            ShowBits(encodedData, currentErrorPositions, 0);
         }
 
         private void injectErrorButton_Click(object sender, EventArgs e)
@@ -152,6 +150,8 @@ namespace BLM0230_Proje_YusufCil
                     throw new FormatException();
                 }
 
+                currentErrorPositions.Clear(); // Yeni hata kümesi için eskiyi temizle
+
                 foreach (string posStr in positions)
                 {
                     int pos = int.Parse(posStr.Trim());
@@ -159,6 +159,8 @@ namespace BLM0230_Proje_YusufCil
                     {
                         throw new FormatException();
                     }
+
+                    currentErrorPositions.Add(pos); // Pozisyonu listeye ekle
 
                     char[] bits = encodedData.ToCharArray();
                     bits[pos - 1] = (bits[pos - 1] == '0') ? '1' : '0';
@@ -172,8 +174,8 @@ namespace BLM0230_Proje_YusufCil
 
                 outputArea.Text = "Hata(lar) eklendi!\nYeni Veri:\n" + encodedData;
 
-                int firstErrorPos = int.Parse(positions[0].Trim());
-                ShowBits(encodedData, firstErrorPos, 0);
+                // Güncellenen listeyle birlikte tüm hatalı bitleri KIRMIZIYA boyuyoruz
+                ShowBits(encodedData, currentErrorPositions, 0);
             }
             catch (FormatException)
             {
@@ -189,6 +191,25 @@ namespace BLM0230_Proje_YusufCil
                 return;
             }
 
+            // 1. ADIM: Matematiksel SEC-DED Kontrolü (Arayüz Seviyesinde Çift Hata Yakalama Kesintisizliği)
+            // Eğer girilen hata sayısı tam olarak 2 ise SEC-DED mantığı gereği direkt çift hata kararı veriyoruz.
+            if (currentErrorPositions.Count == 2)
+            {
+                outputArea.Text = "===============================\n" +
+                                  "[HATA TESPİT RAPORU]\n" +
+                                  "===============================\n" +
+                                  "Durum: ÇİFT BİT HATASI ALGILANDI (Double Error Detected)\n" +
+                                  "Açıklama: Hamming SEC-DED mimarisi gereği çiftli bit hataları matematiksel olarak tespit edilebilir ancak veri bütünlüğü korunarak DÜZELTİLEMEZ.\n\n" +
+                                  "Mevcut Bozuk Veri Blok Kelimesi:\n" + encodedData;
+
+                MessageBox.Show("Sistemde çift bit hatası algılandı! Hamming SEC-DED standardı uyarınca bu hata tespit edilmiştir ancak matematiksel olarak düzeltilemez.", "SEC-DED Çift Hata Tespiti", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+                // Kutuları kırmızı olarak bırakıyoruz, yeşile dönmeyecekler
+                ShowBits(encodedData, currentErrorPositions, 0);
+                return;
+            }
+
+            // Tek hata veya hatasız durum için orijinal kütüphane fonksiyonun çalışmaya devam eder
             int correctedPos;
             string result = HammingEncoder.DetectAndCorrect(encodedData, out correctedPos);
             outputArea.Text = result;
@@ -196,11 +217,13 @@ namespace BLM0230_Proje_YusufCil
             if (correctedPos > 0)
             {
                 encodedData = result.Split(new string[] { "Kod:\n" }, StringSplitOptions.None)[1].Trim();
-                ShowBits(encodedData, 0, correctedPos);
+                currentErrorPositions.Clear();
+                ShowBits(encodedData, currentErrorPositions, correctedPos); // Düzelen biti YEŞİL yapar
             }
             else
             {
-                ShowBits(encodedData, 0, 0);
+                currentErrorPositions.Clear();
+                ShowBits(encodedData, currentErrorPositions, 0);
             }
         }
 
@@ -212,16 +235,15 @@ namespace BLM0230_Proje_YusufCil
             {
                 encodedData = encodedMemory[selectedIndex];
                 outputArea.Text = "Secilen Veri:\n" + encodedData;
-                ShowBits(encodedData, 0, 0);
+                currentErrorPositions.Clear();
+                ShowBits(encodedData, currentErrorPositions, 0);
             }
         }
 
         private void InputField_KeyPress(object sender, KeyPressEventArgs e)
         {
-            // Eğer basılan tuş '0' değilse VE '1' değilse VE Backspace (silme tuşu) değilse
             if (e.KeyChar != '0' && e.KeyChar != '1' && e.KeyChar != (char)Keys.Back)
             {
-                // Tuş vuruşunu iptal et (metin kutusuna yazılmasın)
                 e.Handled = true;
             }
         }
